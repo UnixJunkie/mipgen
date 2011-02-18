@@ -14,12 +14,12 @@ import numpy as npy
 vdw_cutoff=10.
 elec_cutoff=20.
 dielectric_constant = 80.
-coul_k = 1/(dielectric_constant)
+coul_k = 332./(dielectric_constant)
 
-# Fake PROBE parameters for CHARGE,VDWradii/2,Epsilon
+# Fake PROBE parameters for CHARGE,VDWradii,Epsilon
 probeparms = {'C':[0.0,1.95,-0.07], # CD from leucine
              'O':[-0.01,1.65,-0.12],
-             'H+':[1,1,-0.028],
+             'H+':[1,1.1,-0.0157],
              'N':[-0.47,1.85,-0.2],
              'S':[-0.09,2.1,-0.47],
              'neg':[-1,2.5,-0.7]}
@@ -29,6 +29,7 @@ def distanceMat(xyz1, xyz2=None):
     If only xyz1 set is given. Calculate DM with itself.
     If xyz2 is give, it should be only a point. Then calculate DM between the point and xyz1.
     """
+    
     if xyz2 is not None:
         n1 = len(xyz1)
         dm = npy.zeros((1, n1))
@@ -133,7 +134,7 @@ def calcElec(probe, mol, dmat):
             q1 = mol[at][0]
             q2 = probe[0]
 
-            E += coul_k*((q1*q2)/(dmat[at]))
+            E += (coul_k*q1*q2)/(dmat[at])
             
     return E
 
@@ -157,13 +158,13 @@ if __name__ == "__main__":
     grid = gr.createAroundMolecule(pdb, 1., 4.)
     si,sj,sk = grid.shape
     size = grid.data.size
-
+    
     # Choose a probe
     # Specified in the arguments??
     probes = sys.argv[2:]
     
     for probe in probes:
-
+        
         params = probeparms[probe]
         grid.data *= 0  # Reset data to zeros
         
@@ -174,7 +175,7 @@ if __name__ == "__main__":
                     n += 1
                     s = (float(n) / size)*100
                     if s in range(0,100,10):
-                        print "%.2f %%"%(s)
+                        print "%.2f %%\r"%(s)
                     xyz = grid.toCartesian((i,j,k))
                     probe_pos = params+xyz.tolist()
                     
@@ -184,7 +185,7 @@ if __name__ == "__main__":
                     elec = calcElec(probe_pos, molecule, dmat)
                     
                     grid.data[i,j,k] = vdw + elec
-
+                    
         grid.writeDX('%s_grid_test.dx'%probe)
         
     print "DONE"
