@@ -8,6 +8,7 @@ This modules are mandatory for the correct operation of the program.Either Biski
 EXTERNAL SOFTWARE
 -----------------
 1 - AMBERTOOLS 1.4 or later (http://ambermd.org/#AmberTools)
+	1.1 - Antechamber
 
 This software is mandatory. It is used for obtaining the parameters
-for non-bonded interactions calculation (VdW radii, Epsilon and partial charges).
+for non-bonded interactions calculation when running MIP for organic molecules (VdW radii, Epsilon and partial charges).

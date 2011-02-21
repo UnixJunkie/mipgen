@@ -9,7 +9,7 @@ import re
 def readAmberPrep(prepfile):
     "Read an Amber prepin file and return the residues, atom names, atom types,\
     and charges for each atom in a dictionary {RESNAME:[[atname1,attype1,charge1], [..],..], ...}"
-    res = re.compile(r'^\w+.res')       # Begin of a residue in the prepin file
+    res = re.compile(r'\w+\s+INT\s+')       # Begin of a residue in the prepin file
     molec = {}
 
     f = open(prepfile, 'r')
@@ -17,7 +17,7 @@ def readAmberPrep(prepfile):
     while(l):
         l = f.readline()
         if res.match(l):
-            resname = f.readline().split()[0]
+            resname = l.split()[0].strip()
             molec[resname] = []
             #skip 2 lines
             f.readline()
@@ -30,7 +30,7 @@ def readAmberPrep(prepfile):
                 atname, attype, charge = atline[1], atline[2], atline[-1]
                 if atname != 'DUMM': molec[resname].append((atname, attype, charge))
                 s = f.readline().strip()
-                
+
     f.close()
     return molec
 
