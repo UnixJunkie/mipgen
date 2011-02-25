@@ -16,7 +16,7 @@ def readAmberPrep(prepfile):
     l = f.readline()
     while(l):
         l = f.readline()
-        if res.match(l):
+        if res.search(l):
             resname = l.split()[0].strip()
             molec[resname] = []
             #skip 2 lines

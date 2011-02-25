@@ -11,11 +11,27 @@ def insertAt(type, r, e):
     c.execute("INSERT INTO gafftypes VALUES (null, ?, ?, ?)",t)
     conn.commit()
 
+def parseMOD4(dat):
+    lines = [line.strip() for line in open(dat, 'r').readlines()]
+    mod4 = re.compile('^MOD4')
+    for i,l in enumerate(lines):
+        if mod4.match(l):
+            N_dict = lines[i-3]
+            C_dict = lines[i-2]
+            c = 1
+            l = lines[i+c].split()
+            while(bool(l)):
+                attype = l[0]
+                insertAt(attype,l[1],l[2])
+                c += 1
+                l = lines[i+c].split()
+
+#    return N_dict, C_dict
+
 if __name__ == "__main__":
     import sqlite3
     import sys
     import re
-    from generateAmberDB import parseMOD4
 
     if len(sys.argv) != 2:
         sys.exit("\n\tUSAGE: python generateGaffDB.py gaff.dat")
@@ -39,8 +55,7 @@ if __name__ == "__main__":
     # PARSE GAFF.dat FILE
     # Same way as before but without C and N dict list
     # so the output will be ignored
-    lines = [line.strip() for line in open(gaff, 'r').readlines()]
-    N_dict, C_dict = parseMOD4(lines)
+    parseMOD4(gaff)
 
     # Close connections to the DB
     # and we are done!

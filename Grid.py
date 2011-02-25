@@ -12,21 +12,21 @@ import fnmatch
 
 import numpy as npy
 
-try:
-    import Biskit as bi
-    _biskit = True
-except:
-    _biskit = False
-
-try:
-    import Bio.PDB as bpdb
-    _bio = True
-except:
-    _bio = False
-
-if not _bio and not _biskit:
-    error("Biskit or BioPython need to be installed to use some of the \
-    functionalities of the module. createAroundMolecule will not work")
+#try:
+#    import Biskit as bi
+#    _biskit = True
+#except:
+#    _biskit = False
+#
+#try:
+#    import Bio.PDB as bpdb
+#    _bio = True
+#except:
+#    _bio = False
+#
+#if not _bio and not _biskit:
+#    sys.exit("ERROR: Biskit or BioPython need to be installed to use some of the \
+#    functionalities of the module. createAroundMolecule will not work")
 
 _dxtemplate="""#Grid generated with GRID.py
 # Time: %s
@@ -395,10 +395,11 @@ def createAroundMolecule(molecule, spacing, buffer):
 
     buffer is Float or int
     """
-    
     if isinstance(molecule, npy.ndarray):
         if molecule.shape[1] == 3:
             xyz = molecule
+        else:
+            print "(createAroundMolecule) ERROR with npy.ndarray shape. Shape:",molecule.shape
     else:
         xyz = coordsFromMolec(molecule)
 
@@ -416,42 +417,50 @@ def createAroundMolecule(molecule, spacing, buffer):
     return Grid(size=size, origin=origin.tolist(), spacing=spacing)
 
 def coordsFromMolec(molecule):
-    """Molecule is a string of a PDB file or
-    an instance of a Structure in Biopython or
-    a PDBModel instance in Biskit.
-
-    This function loads the file and/or gets the xyz coords
-    from the instances created"""
-    xyz = None
-    
-    if _bio:
-        if isinstance(molecule, bpdb.Structure.Structure):
-            xyz = getStructureCoords(molecule)
-
-    if _biskit and xyz is None:
-        if isinstance(molecule, bi.PDBModel):
-            xyz = molecule.xyz
-
-    if isinstance(molecule, str) and xyz is None:
-        if _biskit:
-            xyz = bi.PDBModel(molecule).xyz
-        elif _bio:
-            parser = bpdb.PDBParser()
-            molecule = parser.get_structure('mol',molecule)
-            xyz = getStructureCoords(molecule)
-
+    "Get XYZ coordinates from the molecule. Will use a simplified PDBParser."
+    from PDBParser import readResAtCoordFromPDB
+    pdb = readResAtCoordFromPDB(molecule)
+    xyz = npy.array([at[2:] for at in pdb])
     return xyz
 
-
-def getStructureCoords(Struct):
-
-    atoms = Struct.get_atoms()
-    coords = [at.get_coord().tolist() for at in atoms]
-
-    return npy.array(coords)
+#def coordsFromMolec(molecule):
+#    """Molecule is a string of a PDB file or
+#    an instance of a Structure in Biopython or
+#    a PDBModel instance in Biskit.
+#
+#    This function loads the file and/or gets the xyz coords
+#    from the instances created"""
+#    xyz = None
+#
+#    if _bio:
+#        if isinstance(molecule, bpdb.Structure.Structure):
+#            xyz = getStructureCoords(molecule)
+#
+#    if _biskit and xyz is None:
+#        if isinstance(molecule, bi.PDBModel):
+#            xyz = molecule.xyz
+#
+#    if isinstance(molecule, str) and xyz is None:
+#        if _biskit:
+#            xyz = bi.PDBModel(molecule).xyz
+#        elif _bio:
+#            parser = bpdb.PDBParser()
+#            molecule = parser.get_structure('mol',molecule)
+#            xyz = getStructureCoords(molecule)
+#
+#    return xyz
+#
+#
+#def getStructureCoords(Struct):
+#
+#    atoms = Struct.get_atoms()
+#    coords = [at.get_coord().tolist() for at in atoms]
+#
+#    return npy.array(coords)
 
 
 if __name__ == "__main__":
-    pdb = bi.PDBModel('../cheachey.pdb')
-    a = createAroundMolecule(pdb.xyz,0.5,4)
+    import sys
+    pdb=sys.argv[1]
+    a = createAroundMolecule(pdb,0.5,4)
     a.writeXPLOR('test.xplor')

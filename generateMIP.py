@@ -1,4 +1,3 @@
-import parser
 #! /usr/bin/python
 
 # To change this template, choose Tools | Templates
@@ -7,7 +6,6 @@ import parser
 __author__="dalvarez"
 __date__ ="$04-feb-2011 18:39:53$"
 
-import Biskit as bi
 import sqlite3
 import numpy as npy
 from os.path import split, splitext, exists
@@ -22,6 +20,11 @@ def defineParser():
             help="Protein file (PDB format)")
     parser.add_option("-m","--molec",dest="molec", default=False,
             help="Molecule file (PDB format)")
+    parser.add_option("-r", "--probe",dest="probes",action="append",
+            help="Append probe names to calculate the MIPs. This flag can be used\
+             more than once.")
+    parser.add_option("-o","--out",dest="out",default="MIP",
+            help="Output name prefix. Use some name descriptive of your job. Default: MIP")
     parser.add_option("-E","--eps",dest="eps",type="float", default=0.,
             help="Relative permitivity for the electrostatic calculations (float). If \
             0. is given, a Distance Dependent Relative Permitivity is used (default)")
@@ -29,9 +32,7 @@ def defineParser():
             help="VdW calculations Cutoff (float). Default: 10A")
     parser.add_option("-e","--elec",dest="elec",type="float",default=20.,
             help="Electrostatic calculations cutoff (float). Default: 20A")
-    parser.add_option("-r", "--probe",dest="probes",action="append",
-            help="Append probe names to calculate the MIPs. This flag may be used\
-             once per probe.")
+
     return parser
 
 def distanceMat(xyz1, xyz2=None):
@@ -51,6 +52,7 @@ def distanceMat(xyz1, xyz2=None):
         for i in range(3):
             data = xyz1[:,i]
             dm += (data - data[:,npy.newaxis])**2
+            
     return npy.sqrt(dm)
 
 def calcVdW(probe, mol, dmat):
@@ -68,12 +70,13 @@ def calcVdW(probe, mol, dmat):
             s = (Rmin/dmat[at])**6
 
             V += E*(s**2 - (2*s))
-
+            
     return V
 
-def calcElec(probe, mol, dmat, dist_dependent=False):
+def calcElec(probe, mol, dmat, diel_const):
+    econst = bool(diel_const)
     E = 0
-    if not dist_dependent: coul_k = 332./(dielectric_constant)
+    if econst: coul_k = 332./(diel_const)
     nhood = dmat <= elec_cutoff
     if npy.any(nhood):
         ats = npy.where(nhood)[0]
@@ -81,7 +84,7 @@ def calcElec(probe, mol, dmat, dist_dependent=False):
             q1 = mol[at][0]
             q2 = probe[0]
             r = dmat[at]
-            if dist_dependent: coul_k = 332./(4*r)
+            if not econst: coul_k = 332./(4*r)
             E += (coul_k*q1*q2)/(r)
 
     return E
@@ -89,7 +92,7 @@ def calcElec(probe, mol, dmat, dist_dependent=False):
 class Leaper:
     """Handle Leap I/O"""
     def __init__(self,  cwd=None):
-        self.tleap = subprocess.Popen("tleap -f - ",  shell=True,   stdin = subprocess.PIPE,  stdout=subprocess.PIPE,  stderr=subprocess.PIPE, cwd=cwd)
+        self.tleap = sub.Popen("tleap -f - ",  shell=True,   stdin = sub.PIPE,  stdout=sub.PIPE,  stderr=sub.PIPE, cwd=cwd)
         self._in = self.tleap.stdin
         self._out = self.tleap.stdout
         self._err = self.tleap.stderr
@@ -111,12 +114,11 @@ class Leaper:
         return out
         
     def close(self):
-        self.command("quit")
         self.tleap.terminate()
         del self.tleap  
 
-class Molecule:
-
+class AmberMolecule:
+    
     def __init__(self, pdbFile, mode):
         """Build an instance for the molecule containing
         for each atom, the coordinates and non-bonded parameters
@@ -126,9 +128,11 @@ class Molecule:
                 xyz - numpy.ndarray with the coordinates
         """
         
-        self.atoms, self.missing = self.__getParamsXYZ(pdbFile, mode)
+        self.atoms = self.__getParamsXYZ(pdbFile, mode)
+#        print self.atoms
+#        sys.exit()
         self.natoms = len(self.atoms)
-        self.xyz = npy.array([at[0][3:] for at in self.atoms])
+        self.xyz = npy.array([at[3:] for at in self.atoms])
         
         
     def __getParamsXYZ(self, pdbFile, mode):
@@ -143,179 +147,185 @@ class Molecule:
         Thus two modes can be chosen in the mode parameter of the function:
 
         Mode = 'gaff'   --> Organic molecule. Treat with antechamber.
-        Mode = 'parm'   --> Protein. Treat with Amber FF in tleap.
+        Mode = 'parm'   --> Protein. Treat with tLeap and then assign Amber FF params.
 
         The function returns a list with this format:
         [[charge, vdw, eps, x, y, z],[..],..]
         """
-        # Prepare Prepin and read it with tleap or antechamber
-        # depending on the input option.
-        #
-        # Prepin file contains the assigned atom types and charges
-        # later, on the amber.db we will fetch the lacking VdW parameters
-        #
+        
+        # If its a protein, 'parm' mode, first give a try to normalize a bit
+        # the file using tLeap from AmberTools. It happens that the PDB can
+        # have different occupancies and/or extrange names. This will filter a bit
+        # this abnormalities
+        if mode == 'parm':
+            pdb = self.__fixPDBtLeap(pdbFile)
+            if pdb: pdbFile = pdb
+            else: pass # Will continue without pre-process and good luck!
+        
         # GAFF is used for organic molecules. Antechamber is used to prepare them.
-        # PARM99 is used for proteins. tLeap is used for preparing the prepin.
+        # PARM99 is used for proteins. Parameters are obtained from amber.db
         if mode == 'gaff':
-            res_types_charges = self.__gaffParams(pdbFile)
+            # First obtain atom types and charges
+            types_charges = self.__gaffParams(pdbFile)
+            res_at_xyz = self.__getAtsXYZ(pdbFile)
+            
+            # Atoms in types_charges don't have the same order as in the PDB file
+            # we have to match atom indices with the coordinates
+            at_xyz_dict = dict(zip([at[1] for at in res_at_xyz],[at[2:] for at in res_at_xyz]))
+            xyz = [at_xyz_dict[at[0]] for at in types_charges]
+            
+            # Assign corresponding VdW parameters using gaff.db
+            params = self.__addVdWtoGaff(types_charges)
+            
+            return [params[i]+xyz[i] for i in range(len(params))]
+        
         elif mode == 'parm':
-            res_types_charges = self.__amberParams(pdbFile)
+            # First extract from the PDB the coordinates, atom names and residue
+            # name for each atom
+            res_at_xyz = self.__getAtsXYZ(pdbFile)
+            res_at = [[at[0],at[1]] for at in res_at_xyz]
+            xyz = [at[2:] for at in res_at_xyz]
+            params = self.__amberParams(res_at)
+            return [params[i]+xyz[i] for i in range(len(params))]
 
-        # The output of the previous step is a dictionary containing all the residues
-        # identified in the prepin file and the atoms/charges per residue.
-        #
-        # Next step is to fetch the VdW parameters for the atomtypes assigned in the DB.
-        #
-        # We have to take also the coordinates for the atoms. So firstly will use Biskit module to read
-        # the pdb file and get the coordinates.
-        
-        xyz = bi.PDBModel(pdbFile).xyz
-        
-        if res_types_charges:
-            for res in res_types_charges.keys():
-                res = res_types_charges[res]
-                for at in range(len(res)):
-                    pass
+    def __queryDB(self, sqliteConnection, DB, attype=None, atname=None, resname=None):
+        "Query database amber.db or gaff.db by atom name or by atom type and return result.\
+        DB should be either 'amber' or 'gaff'."
 
-    def __amberParams(self, pdbFile):
-        """Returns for each atom in pdbInstance a tuple (charge, radii, epsilon, x, y, z)
-        Using Amber GAFF FF."""
-        pdbin = pdbFile
-        prepin = splitext(split(pdbFile)[1])[0] + '.prep'
-        
-        # Open a tleap connection
-        # and send commands to build a prepin file from the pdb
-        leap = Leaper()
-        leap.command("source ffparm/parm99.dat")
-        leap.command("p = loadPdb %s"%pdbFile)
-        leap.command("saveAmberPrep p %s"%prepin)
-        leap.close()
-        
-        # Check that prepin file was created
-        # read it and return output
-        if exists(prepin):
-            return self.__readAmberPrep(prepin)
+        if DB == 'gaff':
+            table = 'gafftypes'
+        elif DB == 'amber':
+            table = 'ambertypes'
         else:
-            return None
+            return False
+        
+        # Create a pointer
+        c = sqliteConnection.cursor()
+
+        # Prepare where clause:
+        if atname and resname:
+            where = "resname='%s' and atname='%s'"%(resname, atname)
+        elif attype:
+            where = "attype='%s'"%attype
+            
+        # Query it!
+        c.execute("SELECT * FROM %s WHERE %s"%(table,where))
+        row=c.fetchall()
+        if len(row) != 1:
+            # No results
+            print 'missing atom'
+            print "At:",atname,resname,attype
+            return 'miss'
+        else:
+            # Correct fetching
+            return row[0]
+            
+    def __addVdWtoGaff(self,types_charges):
+        "Add the corresponding VdW parameters from gaff.db to the given atomtypes"
+
+        # Open sqlite connection and query the db for each atom type
+        conn = sqlite3.connect('ffparm/gaff.db')
+        # TODO if some atom is missing, catch the error!
+        vdw=[self.__queryDB(conn, 'gaff', attype=at[1])[2:] for at in types_charges]
+        conn.close()
+        
+        # Return a list Charge,VdWRadii,Eps
+        return [[float(types_charges[i][2])]+list(vdw[i]) for i in range(len(types_charges))]
+
+        
+    def __fixPDBtLeap(self, pdbFile):
+        "Pre-process PDB using AmberTools software. Just load it and save it again.\
+        It will change some atom names and some residues hopefully fixing some strange things.\
+        Will also add missing Hydrognes."
+        outname = pdbFile.replace('.','_tleap.')
+        tleap = Leaper()
+        tleap.command('p = loadPdb %s'%pdbFile)
+        tleap.command('savePdb p %s'%outname)
+        tleap.close()
+        
+        if exists(outname):
+            return outname
+        else:
+            return False
+        
+    def __getAtsXYZ(self,pdbFile):
+        "Given a pdb file, return the list of residue names and atoms names for each atom."
+        from PDBParser import readResAtCoordFromPDB
+        molec = readResAtCoordFromPDB(pdbFile)
+        return molec
+
+
+    def __amberParams(self, res_at):
+        """Returns for each pair residue_atomname a tuple (charge, radii, epsilon)
+        Using Amber 99 FF"""
+        # Open sqlite connection and query the db for each atom type
+        conn = sqlite3.connect('ffparm/amber.db')
+        # TODO if some atom is missing, catch the error!
+        params = []
+        for at in res_at:
+            if at[1] == 'OXT': at[0] = 'C'+at[0]
+            params.append(list(self.__queryDB(conn, 'amber', resname=at[0], atname=at[1])[4:]))
+        conn.close()
+#        print params
+        # Return a list Charge,VdWRadii,Eps
+        return params
         
     def __gaffParams(self, pdbFile):
         """Returns for each atom in pdbInstance a tuple (charge, radii, epsilon, x, y, z)
         Using Amber GAFF FF."""
+        from amberprep import readAmberPrep
+        
         pdbin = pdbFile
         prepin = splitext(split(pdbFile)[1])[0] + '.prep'
         ante_cmd = "antechamber -i %s -fi pdb -o %s -fo prepi -c bcc -pf"%(pdbin,prepin)
-
+        
         print "Running antechamber to calculate charges and assign atomtypes..."
-        antechamber = sub.Popen(ante_cmd, shell=True, stdout=sub.PIPE, stderr=sub.PIPE)
-        antechamber.wait()
-
+        if not exists(prepin):
+            antechamber = sub.Popen(ante_cmd, shell=True, stdout=sub.PIPE, stderr=sub.PIPE)
+            antechamber.wait()
+#            antechamber.terminate()
+        
         if exists(prepin):
-            return self.__readAmberPrep(prepin)
+            molec = readAmberPrep(prepin)
+            # Will return only first residue as it should only contain 1 :)
+            return molec[molec.keys()[0]]
         else:
+            print antechamber.stdout.read()
+            print antechamber.stderr.read()
             return None
 
-    def __readAmberPrep(self, prepfile):
-        "Read an Amber prepin file and return the residues, atom names, atom types,\
-        and charges for each atom in a dictionary {RESNAME:[[atname1,attype1,charge1], [..],..], ...}"
-        res = re.compile(r'^\w+.res')       # Begin of a residue in the prepin file
-        molec = {}
-
-        f = open(prepfile, 'r')
-        l = f.readline()
-        while(l):
-            l = f.readline()
-            if res.match(l):
-                resname = f.readline().split()[0]
-                molec[resname] = []
-                #skip 2 lines
-                f.readline()
-                f.readline()
-
-                # begins atom section
-                s = f.readline().strip()
-                while(bool(s)):
-                    atline = s.split()
-                    atname, attype, charge = atline[1], atline[2], atline[-1]
-                    if atname != 'DUMM': molec[resname].append((atname, attype, charge))
-                    s = f.readline().strip()
-
-        f.close()
-        return molec
     
-    def __charmmParams(self,pdbFile):
-        """Returns for each atom in pdbInstance a tuple (charge, radii, epsilon, x, y, z)
-        Using charmm DB."""
-        
-        # Some name conversions
-        resDict={'WAT':'TIP3','HOH':'TIP3','HIS':'HSE','HIE':'HSE','HID':'HSD','HIP':'HSP'}
-        atlist={'ILE':{'CD1':'CD'}}
-        
-        # Open sqlite3 database connection to charmm DB
-        conn = sqlite3.connect('ffparm/charmm.db')
-        c = conn.cursor()
-
-        # Initiate empty lists
-        # missing list will contain the atom indices not recognized in the DB
-        atoms = []
-        missing = []
-
-        # Create Biskit.PDBModel Instance and
-        # store coordinates, residue names and atom names
-        # for faster access during the loop
-        pdbInstance = bi.PDBModel(pdbFile)
-        xyz = pdbInstance.xyz
-        resnames = pdbInstance['residue_name']
-        atnames = pdbInstance['name']
-        
-        for i in range(len(pdbInstance)):
-            res,at = resnames[i], atnames[i]
-            if res in resDict.keys(): res=resDict[res]
-            if res in atlist.keys():
-                if at in atlist[res].keys(): at=atlist[res][at]
-
-            # Fetch parameters
-            c.execute("SELECT charge,radii,eps FROM residues WHERE name=? AND atname=?",(res,at))
-            row=c.fetchall()
-            if len(row) != 1:
-                # No results. Append to missing list
-                print "Not found: Atom %i res %s atom %s. Or multiple results"%(i,res,at)
-                missing.append(i)
-            else:
-                # Correct fetching
-                row=map(float, row[0])
-                atoms.append([[row[0],row[1],row[2]]+xyz[i].tolist()])
-        conn.close()
-
-        return atoms, missing
-
     def __getitem__(self, idx):
-        return self.atoms[idx][0]
+        return self.atoms[idx]
 
 
 if __name__ == "__main__":
     import Grid as gr
     import sys
     import os
-
+    
     # PROBE Parameters (CHARGE, VDW RADII, EPS)
-    probeparms = {'C':[0.0,1.95,-0.07], # CD from leucine
-             'O':[-0.01,1.65,-0.12],
-             'H+':[1,1,-0.1],
-             'N':[-0.47,1.85,-0.2],
-             'S':[-0.09,2.1,-0.47],
-             'neg':[-1,2.5,-0.7]}
-
+    probeparms = {'C':[0.0,1.95, 0.07], # CD from leucine
+             'HDON':[0.446255,0., 0.0], # from hydrogen in SER (HO)
+             'pos':[1,0, 0.0], # pure +1 charge
+             'N+':[0.633325,1.85, 0.18], # taking N3 charge + 3H charges and N3 radii + a bit increment to account for Hs
+             'neg':[-1,0, 0.0]} # pure -1 charge
+             
     # Define options parser and get the options
     parser = defineParser()
     (options, args) = parser.parse_args(sys.argv[1:])
     
     if len(sys.argv[1:]) < 2:
         parser.error("Incorrect number of arguments. To get some help type -h or --help.")
-        
+
+    # Output name
+    outprefix = options.out
+    
     # Parse VdW and Elec options
     vdw_cutoff = options.vdw
     elec_cutoff = options.elec
     diel_const = options.eps
+#    print "Using diel_const: ",diel_const, bool(diel_const)
     
     # Check if the user has given a molecule or a protein argument
     # They will be treated differently when assigning atom types
@@ -333,20 +343,22 @@ if __name__ == "__main__":
     if not pdbfile: parser.error("Path to PDB does not exists.")
     
     # Check that all the probes chosen are defined
-    probes = options.parser
+    probes = options.probes
     [parser.error("Error in probe name %s. Check manual for available probes."%p)
         for p in probes if p not in probeparms.keys()]
     
     # Obtain parameters
-    molecule = Molecule(pdbfile,mode)
+    print "Obtaining parameters..."
+    molecule = AmberMolecule(pdbfile,mode)
     
     # Build a grid over the molecule
-    grid = gr.createAroundMolecule(pdb, 1., 4.)
+    print "Building grid over the molecule..."
+    grid = gr.createAroundMolecule(molecule.xyz, 1., 4.)
     si,sj,sk = grid.shape
     size = grid.data.size
     
     for probe in probes:
-        
+        print "\t+ Running probe: ",probe
         params = probeparms[probe]
         grid.data *= 0  # Reset data to zeros
         
@@ -364,10 +376,10 @@ if __name__ == "__main__":
                     dmat = distanceMat(molecule.xyz, xyz)
                     
                     vdw = calcVdW(probe_pos, molecule, dmat)
-                    elec = calcElec(probe_pos, molecule, dmat, dist_dependent=bool(diel_const))
+                    elec = calcElec(probe_pos, molecule, dmat, diel_const)
                     
                     grid.data[i,j,k] = vdw + elec
                     
-        grid.writeDX('%s_grid_test.dx'%probe)
+        grid.writeDX(outprefix+'_%s.dx'%probe)
         
     print "DONE"
