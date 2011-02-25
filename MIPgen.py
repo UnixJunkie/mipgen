@@ -184,8 +184,8 @@ class AmberMolecule:
             # name for each atom
             res_at_xyz = self.__getAtsXYZ(pdbFile)
             res_at = [[at[0],at[1]] for at in res_at_xyz]
-            xyz = [at[2:] for at in res_at_xyz]
-            params = self.__amberParams(res_at)
+            params, miss = self.__amberParams(res_at)
+            xyz = [at[2:] for at in res_at_xyz if at[0:2] not in miss]
             return [params[i]+xyz[i] for i in range(len(params))]
 
     def __queryDB(self, sqliteConnection, DB, attype=None, atname=None, resname=None):
@@ -215,7 +215,7 @@ class AmberMolecule:
             # No results
             print 'missing atom'
             print "At:",atname,resname,attype
-            return 'miss'
+            return 'miss',resname,atname
         else:
             # Correct fetching
             return row[0]
@@ -262,13 +262,17 @@ class AmberMolecule:
         conn = sqlite3.connect('ffparm/amber.db')
         # TODO if some atom is missing, catch the error!
         params = []
+        miss = []
         for at in res_at:
             if at[1] == 'OXT': at[0] = 'C'+at[0]
-            params.append(list(self.__queryDB(conn, 'amber', resname=at[0], atname=at[1])[4:]))
+            if at[0] == 'HIS': at[0] = 'HIE'
+            p = self.__queryDB(conn, 'amber', resname=at[0], atname=at[1])
+            if p[0] != 'miss': params.append(list(p)[4:])
+            else: miss.append(p[1:])
         conn.close()
 #        print params
         # Return a list Charge,VdWRadii,Eps
-        return params
+        return params, miss
         
     def __gaffParams(self, pdbFile):
         """Returns for each atom in pdbInstance a tuple (charge, radii, epsilon, x, y, z)
