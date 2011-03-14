@@ -250,7 +250,7 @@ class AmberMolecule:
         
     def __getAtsXYZ(self,pdbFile):
         "Given a pdb file, return the list of residue names and atoms names for each atom."
-        from PDBParser import readResAtCoordFromPDB
+        from modules.PDBParser import readResAtCoordFromPDB
         molec = readResAtCoordFromPDB(pdbFile)
         return molec
 
@@ -277,7 +277,7 @@ class AmberMolecule:
     def __gaffParams(self, pdbFile):
         """Returns for each atom in pdbInstance a tuple (charge, radii, epsilon, x, y, z)
         Using Amber GAFF FF."""
-        from amberprep import readAmberPrep
+        from modules.amberprep import readAmberPrep
         
         pdbin = pdbFile
         prepin = splitext(split(pdbFile)[1])[0] + '.prep'
@@ -304,7 +304,7 @@ class AmberMolecule:
 
 
 if __name__ == "__main__":
-    import Grid as gr
+    from modules import Grid as gr
     import sys
     import os
     
