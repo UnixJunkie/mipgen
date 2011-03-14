@@ -32,6 +32,8 @@ def defineParser():
             help="VdW calculations Cutoff (float). Default: 10A")
     parser.add_option("-e","--elec",dest="elec",type="float",default=20.,
             help="Electrostatic calculations cutoff (float). Default: 20A")
+    parser.add_option("-l","--list",default=False, action="store_true", dest="list",
+            help="List available probes")
 
     return parser
 
@@ -307,20 +309,49 @@ if __name__ == "__main__":
     from modules import Grid as gr
     import sys
     import os
-    
+
+    # WELCOME MESSAGE
+    print '-'*90
+    print '-'*20 + ' '*22 + 'MIPGEN' + ' '*22 + '-'*20
+    print '-'*90
+    print
+    print "MIPGEN is a python program that will calculate Molecular Interaction Potential grids"
+    print "over a given molecule, that could be either a protein or a small organic compound (drug)."
+    print
+    print "The output will be a serie of grids with DX format (*.dx) that the user will be able"
+    print "to visualize using any Molecular visualization program like VMD, PyMol, Chimera..."
+    print
+    print "For more information on dependencies and usage, please read the Documentation."
+    print
+    print '-'*90
+    print
+
     # PROBE Parameters (CHARGE, VDW RADII, EPS)
-    probeparms = {'C':[0.0,1.95, 0.07], # CD from leucine
-             'HDON':[0.446255,0., 0.0], # from hydrogen in SER (HO)
-             'pos':[1,0, 0.0], # pure +1 charge
-             'N+':[0.633325,1.85, 0.18], # taking N3 charge + 3H charges and N3 radii + a bit increment to account for Hs
-             'neg':[-1,0, 0.0]} # pure -1 charge
+    probeparms = {'C':[0.0,1.95, 0.07],         # CD from leucine
+                    'HDON':[0.446255,0., 0.0],  # from hydrogen in SER (HO)
+                    'pos':[1, 0, 0.0],          # pure +1 charge
+                    'N+':[0.633325,1.85, 0.18], # taking N3 charge + 3H charges and N3 radii + a bit increment to account for Hs
+                    'neg':[-1,0, 0.0]}          # pure -1 charge
              
     # Define options parser and get the options
     parser = defineParser()
     (options, args) = parser.parse_args(sys.argv[1:])
-    
+
+    # Print probe list if options.l
+    if options.list:
+        print "Available probe names:"
+        for probe in probeparms.keys():
+            print "\t+ "+probe
+        print
+        print '-'*90
+        sys.exit(0)
+        
     if len(sys.argv[1:]) < 2:
         parser.error("Incorrect number of arguments. To get some help type -h or --help.")
+        
+    # Before beggining to work, check if AMBERTOOLS is installed
+    if not os.environ.has_key('AMBERHOME'):
+        sys.exit("ERROR: AMBERHOME environ path not found. Please check that you have a working installation of AMBERTOOLS.")
 
     # Output name
     outprefix = options.out
@@ -385,5 +416,8 @@ if __name__ == "__main__":
                     grid.data[i,j,k] = vdw + elec
                     
         grid.writeDX(outprefix+'_%s.dx'%probe)
-        
+
+    print
     print "DONE"
+    print
+    print '-'*90
