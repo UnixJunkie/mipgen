@@ -230,7 +230,6 @@ class AmberMolecule:
     def __gaffParams(self, pdbFile):
         """Returns for each atom in pdbInstance a tuple (charge, radii, epsilon, x, y, z)
         Using Amber GAFF FF."""
-        from modules.amberprep import readAmberPrep
 
         pdbin = pdbFile
         prepin = splitext(split(pdbFile)[1])[0] + '.prep'
