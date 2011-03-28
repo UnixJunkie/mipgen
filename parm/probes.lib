@@ -1,0 +1,8 @@
+# Probes parameters for MIPGen program
+# NAME  CHARGE  VDWradii  VDWeps  DESCRIPTION
+HYD	0.0  		2.165   0.181		# Hydrophobic. Charge from C3 ALA (united atoms) approximated to zero. VDW from C3 ua.
+POS  	1          	0.0     0.0			# pure electrostatics +1 charge
+NEG  	-1		    0.0	    0.0         # pure electrostatics -1 charge
+HDON 	0.418056	1.187   0.0157		# HDonor. charge from hydrogen in SER (HO) and VDW from apolar hydrogen (H3)
+HACC	-0.581321	1.6		0.20		# HAcceptor. charge from GLN OE in United Atoms. VdW from O, ua.
+ACC2    -0.624641       1.65        0.15        # ACC2. O from SER UA.
