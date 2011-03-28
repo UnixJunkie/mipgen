@@ -1,3 +1,3 @@
 import Grid
-import amberprep
+import amber
 import PDBParser
